@@ -9,7 +9,7 @@ from config import GOOGLE_SHEET_ID
 
 # Configuración de la página
 st.set_page_config(
-    page_title="IkúBOT - UDES",
+    page_title="IkúBOT API - Universidad UDES",
     page_icon="⚙️",
     layout="centered"
 )
@@ -210,7 +210,7 @@ if not st.session_state.messages:
     })
 
 # Interfaz principal
-st.title("🤖 IkuBot")
+st.title("🤖 IkuBot (API Version)")
 st.caption("Asistente virtual de la Universidad UDES - Powered by DeepSeek API")
 
 # Indicador de estado
@@ -270,7 +270,6 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
                             }
                         )
 
-# Sidebar
 # Sidebar
 with st.sidebar:
     st.header("ℹ️ Información")

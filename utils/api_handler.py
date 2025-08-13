@@ -2,6 +2,7 @@ import requests
 import json
 from datetime import datetime
 from config import DEEPSEEK_API_KEY, DEEPSEEK_API_URL
+import logging
 
 class DeepSeekAPIHandler:
     def __init__(self):

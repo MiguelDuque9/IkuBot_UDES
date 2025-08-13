@@ -5,7 +5,7 @@ import traceback
 import time
 from datetime import datetime
 import pandas as pd
-import streamlit as st  # Añade esta importación
+from config import GOOGLE_CREDENTIALS
 
 class GoogleSheetsHandler:
     def __init__(self):
@@ -14,22 +14,8 @@ class GoogleSheetsHandler:
             'https://www.googleapis.com/auth/drive'
         ]
         try:
-            # Reemplaza la carga desde archivo por la carga desde Streamlit Secrets
-            creds_dict = {
-                "type": st.secrets["google_creds"]["type"],
-                "project_id": st.secrets["google_creds"]["project_id"],
-                "private_key_id": st.secrets["google_creds"]["private_key_id"],
-                "private_key": st.secrets["google_creds"]["private_key"],
-                "client_email": st.secrets["google_creds"]["client_email"],
-                "client_id": st.secrets["google_creds"]["client_id"],
-                "auth_uri": st.secrets["google_creds"]["auth_uri"],
-                "token_uri": st.secrets["google_creds"]["token_uri"],
-                "auth_provider_x509_cert_url": st.secrets["google_creds"]["auth_provider_x509_cert_url"],
-                "client_x509_cert_url": st.secrets["google_creds"]["client_x509_cert_url"]
-            }
-            
             self.credentials = Credentials.from_service_account_info(
-                creds_dict,
+                GOOGLE_CREDENTIALS, 
                 scopes=self.scopes
             )
             self.client = gspread.authorize(self.credentials)
@@ -37,7 +23,19 @@ class GoogleSheetsHandler:
         except Exception as e:
             print(f"❌ Error al inicializar Google Sheets: {e}")
             raise
-        
+            
+
+    def _refresh_credentials(self):
+        """Refresca las credenciales si están expiradas"""
+        try:
+            if self.credentials.expired:
+                self.credentials.refresh(Request())
+                self.client = gspread.authorize(self.credentials)
+                print("🔄 Credenciales refrescadas")
+        except Exception as e:
+            print(f"⚠️ Error al refrescar credenciales: {e}")
+            raise
+
     def _create_analytics_sheet(self, sheet_id):
         """Crea la hoja de analytics si no existe"""
         try:
