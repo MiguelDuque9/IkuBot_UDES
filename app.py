@@ -6,11 +6,12 @@ import re
 import hashlib
 from utils.api_handler import DeepSeekAPIHandler
 from config import GOOGLE_SHEET_ID
+import os
 
 # Configuración de la página
 st.set_page_config(
-    page_title="IkúBOT API - Universidad UDES",
-    page_icon="⚙️",
+    page_title="IkúBOT - Universidad UDES",
+    page_icon="assets/udeslarge.png",  # Escudo agregado
     layout="centered"
 )
 
@@ -206,12 +207,16 @@ if "conversation_flow" not in st.session_state:
 if not st.session_state.messages:
     st.session_state.messages.append({
         "role": "assistant",
-        "content": "¡Hola! Soy IkuBot, tu asistente virtual de la UDES 🤖. Estoy aquí para ayudarte con tus consultas académicas y administrativas. ¿En qué puedo asistirte hoy? En caso de que no sea posible resolver tu consulta, por favor genera una incidencia para que te contacten y puedan ayudarte con tu solicitud. Para generar una incidencia solo debes responder con la palabra 'incidencia' y seguir el protocolo establecido."
+        "content": "¡Hola! Soy IkúBot, tu asistente virtual de la UDES. Estoy aquí para ayudarte con tus consultas académicas y administrativas. ¿En qué puedo asistirte hoy? En caso de que no sea posible resolver tu consulta, por favor genera una incidencia para que te contacten y puedan ayudarte con tu solicitud. Para generar una incidencia solo debes responder con la palabra 'incidencia' y seguir el protocolo establecido."
     })
 
 # Interfaz principal
-st.title("🤖 IkuBot (API Version)")
-st.caption("Asistente virtual de la Universidad UDES - Powered by DeepSeek API")
+col1, col2 = st.columns([1, 8])
+with col1:
+    st.image("assets/escudo.png", width=80)  # Mostrar escudo arriba
+with col2:
+    st.title("IkúBot")
+st.caption("Asistente virtual - Oficina de atención al estudiante - UDES")
 
 # Indicador de estado
 if st.session_state.conversation_flow != "NORMAL":
@@ -272,9 +277,9 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
 
 # Sidebar
 with st.sidebar:
+    st.image("assets/udeslarge.png", width=350)  
     st.header("ℹ️ Información")
-    st.write("**Versión:** API DeepSeek")
-    st.write("**ID de Sesión:**", st.session_state.session_id)
+    st.write("IkúBot es un asistente virtual inteligente desarrollado para la Oficina de Atención al estudiante de la Universidad de Santander UDES, diseñado para resolver consultas académico-administrativas de manera rápida y precisa")
     
     if st.session_state.conversation_flow != "NORMAL":
         st.write("**Estado actual:** Creando incidencia")

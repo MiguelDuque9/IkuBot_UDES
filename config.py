@@ -10,7 +10,6 @@ def get_secrets():
             'GOOGLE_CREDENTIALS': dict(st.secrets["GOOGLE_CREDENTIALS"])
         }
     except:
-        # Para desarrollo local (usar .env)
         from decouple import config
         return {
             'DEEPSEEK_API_KEY': config('DEEPSEEK_API_KEY', default=''),
