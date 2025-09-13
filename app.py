@@ -11,20 +11,36 @@ import os
 # Configuración de la página
 st.set_page_config(
     page_title="IkúBOT - Universidad UDES",
-    page_icon="assets/udeslarge.png",  # Escudo agregado
+    page_icon="assets/escudo.png",  # Escudo agregado
     layout="centered"
 )
 
 # Inicializar handlers
 @st.cache_resource
-def init_handlers():
+def init_handlers(version: str = "v1"):
     return {
         "gsheets": GoogleSheetsHandler(),
         "deepseek": DeepSeekAPIHandler()
     }
 
-handlers = init_handlers()
+# Cambia HANDLERS_VERSION para forzar refresco del caché cuando cambie la lógica de handlers
+HANDLERS_VERSION = "users-v1"
+handlers = init_handlers(HANDLERS_VERSION)
 SHEET_NAME = "IncidenciasIKUBOT"
+USERS_SHEET_NAME = "UsuariosIKUBOT"
+
+# Mensaje de autorización de tratamiento de datos personales (consentimiento)
+CONSENT_MESSAGE = (
+    "¡Hola! Soy IkúBot, tu asistente virtual de la UDES. Estoy aquí para ayudarte con tus consultas académicas y administrativas.\n\n"
+    "Para dar cumplimiento de lo establecido en la Ley 1581 de 2012 y su Decreto Reglamentario 1377 de 2013, sobre la Protección de Datos Personales, "
+    "la Universidad de Santander - UDES informa que los datos personales que usted nos proporcione serán incorporados en una base de datos de la cual la UDES es responsable, "
+    "con el fin de mantener, desarrollar y gestionar los servicios que ofrecemos.\n\n"
+    "Nuestra política de tratamiento de datos personales se encuentra disponible en el sitio web oficial: www.udes.edu.co.\n\n"
+    "Para poder continuar con su solicitud, requerimos su consentimiento expreso para el tratamiento de sus datos personales. "
+    "Si no está de acuerdo, puede enviarnos sus observaciones o inquietudes al correo electrónico: habeasdata@udes.edu.co.\n\n"
+    "¿Acepta nuestra política de protección de datos personales?\n"
+    "(Por favor responda únicamente con: Si o No)."
+)
 
 # Función para limpiar respuestas
 def clean_response(response):
@@ -70,11 +86,28 @@ def handle_incident_flow(user_input):
     if st.session_state.conversation_flow == "NORMAL":
         if any(trigger in user_input.lower() for trigger in INCIDENT_KEYWORDS):
             st.session_state.conversation_flow = "COLLECTING"
-            st.session_state.incident_data = {
-                "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "step": "nombre"
-            }
-            return """🎫 **Creación de Incidencia**
+            # Si ya tenemos datos de usuario, saltar a descripción
+            if st.session_state.user_profile.get("completed"):
+                contacto = st.session_state.user_profile.get("telefono", "")
+                nombre_completo = st.session_state.user_profile.get("nombre", "")
+                primer_nombre = st.session_state.user_profile.get("primer_nombre", nombre_completo)
+                st.session_state.incident_data = {
+                    "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "step": "descripcion",
+                    "nombre": nombre_completo,
+                    "correo": contacto,
+                    "asunto": "Incidencia desde chat"
+                }
+                return (
+                    f"🎫 **Creación de Incidencia**\n\n"
+                    f"{primer_nombre}, ya tengo tus datos de contacto. Por favor describe detalladamente tu **problema o consulta**:"
+                )
+            else:
+                st.session_state.incident_data = {
+                    "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "step": "nombre"
+                }
+                return """🎫 **Creación de Incidencia**
 
 Para registrar tu incidencia y que nuestro equipo pueda contactarte, necesito algunos datos.
 
@@ -123,11 +156,11 @@ def collect_incident_data(user_input):
         st.session_state.incident_data["descripcion"] = user_input.strip()
         st.session_state.conversation_flow = "CONFIRMING"
         
-        return f"""✍️ **Resumen de tu incidencia:**
+    return f"""✍️ **Resumen de tu incidencia:**
 
 **📅 Fecha:** {st.session_state.incident_data['fecha']}
 **👤 Nombre:** {st.session_state.incident_data['nombre']}
-**📧 Correo:** {st.session_state.incident_data['correo']}
+**📧 Contacto:** {st.session_state.incident_data['correo']}
 **📋 Asunto:** {st.session_state.incident_data['asunto']}
 **📝 Descripción:** {st.session_state.incident_data['descripcion']}
 
@@ -149,17 +182,7 @@ def confirm_incident_data(user_input):
             )
             
             if result:
-                handlers["gsheets"].log_interaction(
-                    GOOGLE_SHEET_ID,
-                    {
-                        'tipo_interaccion': 'incidencia_completada',
-                        'mensaje_usuario': 'Registro de incidencia confirmado',
-                        'respuesta_bot': 'Incidencia registrada exitosamente',
-                        'session_id': st.session_state.session_id,
-                        'incidencia': 'Sí',
-                        'estado': 'Completada'
-                    }
-                )
+                # No registrar en Analyticas la confirmación de incidencia
                 
                 st.session_state.conversation_flow = "NORMAL"
                 st.session_state.incident_data = {}
@@ -203,11 +226,25 @@ if "incident_data" not in st.session_state:
 if "conversation_flow" not in st.session_state:
     st.session_state.conversation_flow = "NORMAL"
 
-# Mensaje de bienvenida
+# Estado de consentimiento (PENDING, ACCEPTED, DECLINED)
+if "consent_status" not in st.session_state:
+    st.session_state.consent_status = "PENDING"
+
+# Perfil de usuario básico tras consentimiento
+if "user_profile" not in st.session_state:
+    st.session_state.user_profile = {
+        "completed": False,
+        "step": None,  # nombre -> tipo_usuario -> telefono
+        "nombre": "",
+        "tipo_usuario": "",
+        "telefono": ""
+    }
+
+# Mensaje inicial con autorización de datos
 if not st.session_state.messages:
     st.session_state.messages.append({
         "role": "assistant",
-        "content": "¡Hola! Soy IkúBot, tu asistente virtual de la UDES. Estoy aquí para ayudarte con tus consultas académicas y administrativas. ¿En qué puedo asistirte hoy? En caso de que no sea posible resolver tu consulta, por favor genera una incidencia para que te contacten y puedan ayudarte con tu solicitud. Para generar una incidencia solo debes responder con la palabra 'incidencia' y seguir el protocolo establecido."
+        "content": CONSENT_MESSAGE
     })
 
 # Interfaz principal
@@ -230,54 +267,181 @@ for message in st.session_state.messages:
 # Input del usuario
 if prompt := st.chat_input("Escribe tu mensaje..."):
     if prompt.strip():
-        if st.session_state.conversation_flow == "NORMAL":
-            handlers["gsheets"].log_interaction(
-                GOOGLE_SHEET_ID,
-                {
-                    'tipo_interaccion': 'mensaje_usuario',
-                    'mensaje_usuario': prompt,
-                    'session_id': st.session_state.session_id,
-                    'incidencia': 'No'
-                }
-            )
-        
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        
-        with st.chat_message("assistant"):
-            incident_response = handle_incident_flow(prompt)
-            
-            if incident_response is not None:
-                st.markdown(incident_response)
-                st.session_state.messages.append({
-                    "role": "assistant", 
-                    "content": incident_response
-                })
-            else:
-                with st.spinner("Pensando..."):
-                    response = get_ai_response(prompt)
-                    st.markdown(response)
-                    st.session_state.messages.append({
-                        "role": "assistant", 
-                        "content": response
+        # Manejo de consentimiento antes de cualquier otra acción
+        user_clean = prompt.strip().lower()
+
+        if st.session_state.consent_status != "ACCEPTED":
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                if user_clean in ["si", "sí", "si.", "sí.", "yes"]:
+                    st.session_state.consent_status = "ACCEPTED"
+                    # Iniciar flujo de perfil
+                    st.session_state.user_profile.update({
+                        "completed": False,
+                        "step": "nombre",
+                        "nombre": "",
+                        "tipo_usuario": "",
+                        "telefono": ""
                     })
+                    welcome = (
+                        "Gracias por aceptar nuestra política de protección de datos personales.\n\n"
+                        "Para brindarte una atención más personalizada, primero necesito algunos datos.\n\n"
+                        "Por favor, indícame tu nombre completo:"
+                    )
+                    st.markdown(welcome)
+                    st.session_state.messages.append({"role": "assistant", "content": welcome})
+                elif user_clean in ["no", "no.", "nop", "nope"]:
+                    st.session_state.consent_status = "DECLINED"
+                    decline_msg = (
+                        "Entendido. Sin su autorización no podemos continuar con la atención por este medio.\n\n"
+                        "Puede comunicarse directamente con la Oficina de Atención al Estudiante para recibir asistencia:\n\n"
+                        "• Correo: sec.atencionestudiante@udes.edu.co\n"
+                        "• Teléfono: (607) 651 6500\n\n"
+                        "Si cambia de opinión, puede escribir 'Si' para aceptar la política y continuar."
+                    )
+                    st.markdown(decline_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": decline_msg})
+                else:
+                    ask_again = "Por favor responde únicamente con: 'Si' o 'No' para continuar."
+                    st.markdown(ask_again)
+                    st.session_state.messages.append({"role": "assistant", "content": ask_again})
+        else:
+            # Preparar criterio de logging (se registrará luego de generar la respuesta)
+            prompt_l = prompt.lower()
+            is_incident_trigger = any(trigger in prompt_l for trigger in INCIDENT_KEYWORDS)
+            starts_words = ("necesito", "quiero", "busco", "como", "cómo", "cuando", "cuándo", "donde", "dónde", "que", "qué", "información", "info", "ayuda")
+            has_udes_keyword = any(k in prompt_l for k in UDES_KEYWORDS)
+            is_query_like = ("?" in prompt) or has_udes_keyword or prompt_l.startswith(starts_words)
+            should_log_query = (
+                st.session_state.conversation_flow == "NORMAL"
+                and st.session_state.user_profile.get("completed")
+                and is_query_like
+                and not is_incident_trigger
+            )
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            
+            with st.chat_message("assistant"):
+                # Si el perfil no se ha completado, recolectarlo antes de continuar
+                if st.session_state.consent_status == "ACCEPTED" and not st.session_state.user_profile.get("completed"):
+                    step = st.session_state.user_profile.get("step")
+                    reply = None
+
+                    if step == "nombre":
+                        if len(prompt.strip()) < 3:
+                            reply = "Por favor ingresa un nombre válido (mínimo 3 caracteres):"
+                        else:
+                            st.session_state.user_profile["nombre"] = prompt.strip()
+                            # Guardar primer nombre para personalización
+                            parts = re.split(r"\s+", st.session_state.user_profile["nombre"].strip())
+                            st.session_state.user_profile["primer_nombre"] = parts[0] if parts else st.session_state.user_profile["nombre"]
+                            st.session_state.user_profile["step"] = "tipo_usuario"
+                            reply = (
+                                f"Gracias, {st.session_state.user_profile['primer_nombre']}. ¿Eres estudiante UDES o una persona externa? "
+                                "Responde con 'estudiante' o 'externo'."
+                            )
+                    elif step == "tipo_usuario":
+                        tipo = prompt.strip().lower()
+                        if tipo in ["estudiante", "externo", "estudiante udes", "persona externa"]:
+                            st.session_state.user_profile["tipo_usuario"] = "estudiante" if "estudiante" in tipo else "externo"
+                            st.session_state.user_profile["step"] = "telefono"
+                            reply = "Perfecto. Ahora, por favor comparte un correo electrónico o un número de teléfono/celular de contacto:"
+                        else:
+                            reply = "Por favor responde únicamente con 'estudiante' o 'externo'."
+                    elif step == "telefono":
+                        contact = prompt.strip()
+                        if validate_email(contact):
+                            st.session_state.user_profile["telefono"] = contact
+                            valid_contact = True
+                        else:
+                            phone = re.sub(r"[^0-9+ ]", "", contact)
+                            valid_contact = len(re.sub(r"\D", "", phone)) >= 7
+                            if valid_contact:
+                                st.session_state.user_profile["telefono"] = phone.strip()
+
+                        if not valid_contact:
+                            reply = "El contacto parece inválido. Ingresa un correo electrónico válido o un teléfono/celular válido (mínimo 7 dígitos):"
+                        else:
+                            st.session_state.user_profile["completed"] = True
+                            st.session_state.user_profile["step"] = None
+                            # Guardar en Google Sheets (asegurar método disponible)
+                            gs = handlers.get("gsheets")
+                            if not hasattr(gs, "add_user_profile"):
+                                # Re-inicializar handlers por si hay caché antiguo
+                                st.cache_resource.clear()
+                                handlers.update(init_handlers(HANDLERS_VERSION))
+                                gs = handlers.get("gsheets")
+                            try:
+                                gs.add_user_profile(
+                                    GOOGLE_SHEET_ID,
+                                    USERS_SHEET_NAME,
+                                    {
+                                        'session_id': st.session_state.session_id,
+                                        'nombre': st.session_state.user_profile['nombre'],
+                                        'tipo_usuario': st.session_state.user_profile['tipo_usuario'],
+                                        'telefono': st.session_state.user_profile['telefono']
+                                    }
+                                )
+                            except Exception as e:
+                                st.warning(f"No se pudo registrar el perfil en Google Sheets: {e}")
+                            reply = (
+                                f"¡Gracias, {st.session_state.user_profile.get('primer_nombre', st.session_state.user_profile['nombre'])}! Datos registrados.\n\n"
+                                "¿En qué puedo asistirte hoy? Si no es posible resolver tu consulta, recuerda que puedes generar una incidencia escribiendo 'incidencia'.\n\n"
+                                "Horario de atención (Oficina de Atención al Estudiante):\n"
+                                "- Lunes a jueves: 8:00 a.m. – 12:00 m. y 2:00 p.m. – 7:00 p.m.\n"
+                                "- Viernes: 8:00 a.m. – 12:00 m. y 2:00 p.m. – 6:00 p.m.\n\n"
+                                "Serás contactado por la Oficina de Atención al Estudiante lo antes posible en días hábiles."
+                            )
+
+                    if reply is None:
+                        reply = "Para continuar, por favor proporciona la información solicitada."
+                    st.markdown(reply)
+                    st.session_state.messages.append({"role": "assistant", "content": reply})
+                else:
+                    # Personalizar respuestas usando el nombre si está disponible
+                    incident_response = handle_incident_flow(prompt)
                     
-                    if st.session_state.conversation_flow == "NORMAL":
-                        handlers["gsheets"].log_interaction(
-                            GOOGLE_SHEET_ID,
-                            {
-                                'tipo_interaccion': 'respuesta_bot',
-                                'respuesta_bot': response,
-                                'session_id': st.session_state.session_id,
-                                'incidencia': 'No'
-                            }
-                        )
+                    if incident_response is not None:
+                        personalized = incident_response
+                        if st.session_state.user_profile.get("completed") and st.session_state.user_profile.get("nombre"):
+                            nombre_corto = st.session_state.user_profile.get("primer_nombre", st.session_state.user_profile["nombre"])
+                            personalized = personalized.replace("¿Hay algo más en lo que pueda ayudarte?", f"{nombre_corto}, ¿hay algo más en lo que pueda ayudarte?")
+                        st.markdown(personalized)
+                        st.session_state.messages.append({
+                            "role": "assistant", 
+                            "content": personalized
+                        })
+                    else:
+                        with st.spinner("Pensando..."):
+                            response = get_ai_response(prompt)
+                            if st.session_state.user_profile.get("completed") and st.session_state.user_profile.get("nombre"):
+                                nombre_corto = st.session_state.user_profile.get("primer_nombre", st.session_state.user_profile["nombre"])
+                                response = f"{nombre_corto}, " + response
+                            st.markdown(response)
+                            st.session_state.messages.append({
+                                "role": "assistant", 
+                                "content": response
+                            })
+                            # Registrar pregunta y respuesta en Analyticas solo para consultas válidas
+                            if should_log_query:
+                                handlers["gsheets"].log_interaction(
+                                    GOOGLE_SHEET_ID,
+                                    {
+                                        'tipo_interaccion': 'pregunta_respuesta',
+                                        'mensaje_usuario': prompt,
+                                        'respuesta_bot': response,
+                                        'session_id': st.session_state.session_id,
+                                    }
+                                )
 
 # Sidebar
 with st.sidebar:
-    st.image("assets/udeslarge.png", width=350)  
+    st.image("assets/udeslarge.png", width=350)
     st.header("ℹ️ Información")
     st.write("IkúBot es un asistente virtual inteligente desarrollado para la Oficina de Atención al estudiante de la Universidad de Santander UDES, diseñado para resolver consultas académico-administrativas de manera rápida y precisa")
     
@@ -286,7 +450,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("**Contacto directo:**")
-    st.markdown("📧 soporte@udes.edu.co")
+    st.markdown("📧 sec.atencionestudiante@udes.edu.co")
     st.markdown("📞 (607) 651 6500")
     
     # Botón para actualizar tablas

@@ -37,7 +37,7 @@ class GoogleSheetsHandler:
             raise
 
     def _create_analytics_sheet(self, sheet_id):
-        """Crea la hoja de analytics si no existe"""
+        """Crea la hoja de analytics si no existe (sin modificar columnas existentes)"""
         try:
             spreadsheet = self.client.open_by_key(sheet_id)
             try:
@@ -48,19 +48,18 @@ class GoogleSheetsHandler:
                 worksheet = spreadsheet.add_worksheet(
                     title="AnalyticasIKUBOT",
                     rows=1000,
-                    cols=10
+                    cols=7
                 )
                 
                 # Encabezados
                 headers = [
                     "Timestamp", "Fecha", "Hora", "Tipo_Interaccion",
-                    "Mensaje_Usuario", "Respuesta_Bot", "Session_ID", 
-                    "Longitud_Mensaje", "Incidencia", "Estado"
+                    "Mensaje_Usuario", "Respuesta_Bot", "Session_ID"
                 ]
                 worksheet.append_row(headers)
                 
                 # Formato de encabezados
-                worksheet.format('A1:J1', {
+                worksheet.format('A1:G1', {
                     'backgroundColor': {'red': 0.2, 'green': 0.6, 'blue': 0.8},
                     'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}}
                 })
@@ -98,6 +97,34 @@ class GoogleSheetsHandler:
                 return worksheet
         except Exception as e:
             print(f"❌ Error al crear hoja DashboardIKUBOT: {e}")
+            raise
+
+    def _create_users_sheet(self, sheet_id, sheet_name="UsuariosIKUBOT"):
+        """Crea la hoja de usuarios si no existe y devuelve el worksheet"""
+        try:
+            spreadsheet = self.client.open_by_key(sheet_id)
+            try:
+                worksheet = spreadsheet.worksheet(sheet_name)
+                print(f"✅ Hoja {sheet_name} ya existe")
+                return worksheet
+            except gspread.exceptions.WorksheetNotFound:
+                worksheet = spreadsheet.add_worksheet(
+                    title=sheet_name,
+                    rows=1000,
+                    cols=10
+                )
+                headers = [
+                    "Timestamp", "Session_ID", "Nombre", "Tipo_Usuario", "Contacto"
+                ]
+                worksheet.append_row(headers)
+                worksheet.format('A1:E1', {
+                    'backgroundColor': {'red': 0.2, 'green': 0.6, 'blue': 0.8},
+                    'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}}
+                })
+                print(f"✅ Hoja {sheet_name} creada exitosamente")
+                return worksheet
+        except Exception as e:
+            print(f"❌ Error al crear hoja {sheet_name}: {e}")
             raise
 
     def update_dashboard_tables(self, sheet_id):
@@ -234,14 +261,14 @@ class GoogleSheetsHandler:
             print(f"Error en tabla horaria: {e}")
 
     def _create_incidents_vs_normal_table(self, data, sheet):
-        """Crea tabla de incidencias vs consultas normales"""
+        """Crea tabla de incidencias vs consultas normales (basado en Tipo_Interaccion)"""
         try:
-            # Procesar datos
+            # Procesar datos utilizando Tipo_Interaccion
             incident_counts = {'Incidencia': 0, 'Consulta Normal': 0}
             for row in data[1:]:  # Saltar encabezados
-                if len(row) >= 9:
-                    is_incident = row[8]  # Columna Incidencia
-                    if is_incident == 'Sí':
+                if len(row) >= 4:
+                    interaction_type = row[3].strip().lower()
+                    if interaction_type == 'incidencia_completada':
                         incident_counts['Incidencia'] += 1
                     else:
                         incident_counts['Consulta Normal'] += 1
@@ -270,14 +297,13 @@ class GoogleSheetsHandler:
             total_interactions = len(data) - 1  # Excluir encabezados
             unique_sessions = len(set(row[6] for row in data[1:] if len(row) >= 7 and row[6]))
             
-            # Calcular longitud promedio de mensajes
+            # Calcular longitud promedio de mensajes desde la columna Mensaje_Usuario (índice 4)
             total_length = 0
             count_with_length = 0
             for row in data[1:]:
-                if len(row) >= 8 and row[7] and str(row[7]).isdigit():
-                    total_length += int(row[7])
+                if len(row) >= 5 and row[4]:
+                    total_length += len(row[4])
                     count_with_length += 1
-            
             avg_length = total_length / count_with_length if count_with_length > 0 else 0
             
             # Escribir métricas
@@ -289,7 +315,7 @@ class GoogleSheetsHandler:
                 ['Total Interacciones', total_interactions],
                 ['Sesiones Únicas', unique_sessions],
                 ['Longitud Promedio Mensaje', f"{avg_length:.1f} caracteres"],
-                ['Interacciones por Sesión', f"{total_interactions/unique_sessions:.1f}" if unique_sessions > 0 else "0"]
+                ['Interacciones por Sesión', f"{(total_interactions/unique_sessions):.1f}" if unique_sessions > 0 else "0"]
             ]
             
             sheet.update('M4', metrics)
@@ -302,7 +328,7 @@ class GoogleSheetsHandler:
             print(f"Error en métricas de resumen: {e}")
 
     def log_interaction(self, sheet_id, interaction_data):
-        """Registra una interacción en AnalyticasIKUBOT"""
+        """Registra una interacción en AnalyticasIKUBOT (formato nuevo sin columnas extra)"""
         try:
             self._refresh_credentials()
             worksheet = self._create_analytics_sheet(sheet_id)
@@ -316,9 +342,6 @@ class GoogleSheetsHandler:
                 interaction_data.get('mensaje_usuario', '')[:300],
                 interaction_data.get('respuesta_bot', '')[:300],
                 interaction_data.get('session_id', ''),
-                len(interaction_data.get('mensaje_usuario', '')),
-                interaction_data.get('incidencia', 'No'),
-                'Activo'
             ]
             
             worksheet.append_row(row_data)
@@ -360,6 +383,40 @@ class GoogleSheetsHandler:
                 retry_count += 1
                 time.sleep(2 ** retry_count)
         
+        print("❌ Fallo después de múltiples intentos")
+        return False
+
+    def add_user_profile(self, sheet_id, sheet_name, user_profile):
+        """Agrega o actualiza un registro de usuario en la hoja UsuariosIKUBOT"""
+        max_retries = 3
+        retry_count = 0
+
+        while retry_count < max_retries:
+            try:
+                self._refresh_credentials()
+                worksheet = self._create_users_sheet(sheet_id, sheet_name)
+
+                row_data = [
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    user_profile.get('session_id', ''),
+                    user_profile.get('nombre', ''),
+                    user_profile.get('tipo_usuario', ''),
+                    user_profile.get('telefono', ''),
+                ]
+
+                worksheet.append_row(row_data)
+                return True
+
+            except gspread.exceptions.APIError as e:
+                print(f"Error de API (intento {retry_count+1}): {e}")
+                time.sleep(2 ** retry_count)
+                retry_count += 1
+            except Exception as e:
+                print(f"Error inesperado: {e}")
+                traceback.print_exc()
+                retry_count += 1
+                time.sleep(2 ** retry_count)
+
         print("❌ Fallo después de múltiples intentos")
         return False
 
