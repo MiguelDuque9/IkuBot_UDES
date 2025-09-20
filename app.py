@@ -43,6 +43,14 @@ CONSENT_MESSAGE = (
     "(Por favor responda únicamente con: Si o No)."
 )
 
+# Conjunto ampliado de disparadores para iniciar el flujo de incidencias
+INCIDENT_EXTRA_TRIGGERS = (
+    "abrir un ticket", "abrir ticket", "reporte un problema", "reportar problema", "tengo un problema",
+    "soporte", "ayuda con un error", "fallo", "error en", "no funciona", "no me deja", "presento un inconveniente",
+    "crear caso", "crear un caso", "levantar caso", "generar caso", "generar reporte", "reportar incidencia",
+    "incidente", "inconveniente"
+)
+
 ## Elimina etiquetas de procesamiento y espacios innecesarios en la respuesta
 def clean_response(response):
     """Limpia etiquetas de thinking y espacios extra"""
@@ -100,13 +108,7 @@ def handle_incident_flow(user_input):
         # Detección robusta de intención de incidencia (acentos y variantes)
         text_cmp = _lower_no_accents(user_input)
         base_hit = any(trigger in text_cmp for trigger in [_lower_no_accents(k) for k in INCIDENT_KEYWORDS])
-        extra_triggers = (
-            "abrir un ticket", "abrir ticket", "reporte un problema", "reportar problema", "tengo un problema",
-            "soporte", "ayuda con un error", "fallo", "error en", "no funciona", "no me deja", "presento un inconveniente",
-            "crear caso", "crear un caso", "levantar caso", "generar caso", "generar reporte", "reportar incidencia",
-            "incidente", "inconveniente"
-        )
-        extra_hit = any(_lower_no_accents(p) in text_cmp for p in extra_triggers)
+        extra_hit = any(_lower_no_accents(p) in text_cmp for p in INCIDENT_EXTRA_TRIGGERS)
         if base_hit or extra_hit:
             st.session_state.conversation_flow = "COLLECTING"
             # Si el usuario ya tiene datos registrados, omitir recolección
@@ -347,14 +349,18 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
         else:
             # Prepara los datos para registro en Analyticas tras generar la respuesta
             prompt_l = normalized_l
-            is_incident_trigger = any(trigger in _lower_no_accents(prompt_l) for trigger in [_lower_no_accents(k) for k in INCIDENT_KEYWORDS])
-            starts_words = ("necesito", "quiero", "busco", "como", "cómo", "cuando", "cuándo", "donde", "dónde", "que", "qué", "información", "info", "ayuda")
-            has_udes_keyword = any(k in prompt_l for k in UDES_KEYWORDS)
-            is_query_like = ("?" in prompt) or has_udes_keyword or prompt_l.startswith(starts_words)
+            # Detecta si el mensaje actual intenta iniciar el flujo de incidencias (base + extras)
+            incident_bases = [_lower_no_accents(k) for k in INCIDENT_KEYWORDS]
+            incident_extras = [_lower_no_accents(k) for k in INCIDENT_EXTRA_TRIGGERS]
+            lowered = _lower_no_accents(prompt_l)
+            is_incident_trigger = any(trigger in lowered for trigger in incident_bases + incident_extras)
+            # Registra TODAS las consultas del usuario en flujo normal, con perfil completo,
+            # excluyendo cualquier mensaje que dispare/incurra en el flujo de incidencias.
+            # Nota: Quedan excluidos de forma natural los mensajes del protocolo de tratamiento
+            # de datos (antes de aceptar y durante la recolección del perfil) y las incidencias.
             should_log_query = (
                 st.session_state.conversation_flow == "NORMAL"
                 and st.session_state.user_profile.get("completed")
-                and is_query_like
                 and not is_incident_trigger
             )
             st.session_state.messages.append({"role": "user", "content": prompt})

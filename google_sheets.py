@@ -331,27 +331,38 @@ class GoogleSheetsHandler:
 
     def log_interaction(self, sheet_id, interaction_data):
         """Registra una nueva interacción en la hoja AnalyticasIKUBOT."""
-        try:
-            self._refresh_credentials()
-            worksheet = self._create_analytics_sheet(sheet_id)
-            
-            # Prepara los datos para registrar la interacción
-            row_data = [
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                datetime.now().strftime("%Y-%m-%d"),
-                datetime.now().strftime("%H:%M:%S"),
-                interaction_data.get('tipo_interaccion', ''),
-                interaction_data.get('mensaje_usuario', '')[:300],
-                interaction_data.get('respuesta_bot', '')[:300],
-                interaction_data.get('session_id', ''),
-            ]
-            
-            worksheet.append_row(row_data)
-            return True
-        except Exception as e:
-            print(f"❌ Error al registrar interacción: {e}")
-            traceback.print_exc()
-            return False
+        max_retries = 3
+        retry = 0
+        while retry < max_retries:
+            try:
+                self._refresh_credentials()
+                worksheet = self._create_analytics_sheet(sheet_id)
+
+                # Prepara los datos para registrar la interacción
+                now = datetime.now()
+                row_data = [
+                    now.strftime("%Y-%m-%d %H:%M:%S"),
+                    now.strftime("%Y-%m-%d"),
+                    now.strftime("%H:%M:%S"),
+                    interaction_data.get('tipo_interaccion', ''),
+                    interaction_data.get('mensaje_usuario', '')[:300],
+                    interaction_data.get('respuesta_bot', '')[:300],
+                    interaction_data.get('session_id', ''),
+                ]
+
+                worksheet.append_row(row_data)
+                return True
+            except gspread.exceptions.APIError as e:
+                print(f"⚠️ Error de API al registrar interacción (intento {retry+1}): {e}")
+                time.sleep(2 ** retry)
+                retry += 1
+            except Exception as e:
+                print(f"❌ Error al registrar interacción: {e}")
+                traceback.print_exc()
+                time.sleep(2 ** retry)
+                retry += 1
+        print("❌ No se pudo registrar la interacción después de múltiples intentos")
+        return False
 
     def add_incident(self, sheet_id, sheet_name, incident_data):
         """Agrega una nueva incidencia a la hoja correspondiente."""
