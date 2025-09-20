@@ -26,7 +26,7 @@ class GoogleSheetsHandler:
             
 
     def _refresh_credentials(self):
-        """Refresca las credenciales si están expiradas"""
+        """Actualiza las credenciales si han expirado para mantener la conexión segura."""
         try:
             if self.credentials.expired:
                 self.credentials.refresh(Request())
@@ -37,7 +37,7 @@ class GoogleSheetsHandler:
             raise
 
     def _create_analytics_sheet(self, sheet_id):
-        """Crea la hoja de analytics si no existe (sin modificar columnas existentes)"""
+        """Crea la hoja de AnalyticasIKUBOT si no existe, sin modificar columnas existentes."""
         try:
             spreadsheet = self.client.open_by_key(sheet_id)
             try:
@@ -51,14 +51,14 @@ class GoogleSheetsHandler:
                     cols=7
                 )
                 
-                # Encabezados
+                # Agrega los encabezados principales a la hoja de AnalyticasIKUBOT
                 headers = [
                     "Timestamp", "Fecha", "Hora", "Tipo_Interaccion",
                     "Mensaje_Usuario", "Respuesta_Bot", "Session_ID"
                 ]
                 worksheet.append_row(headers)
                 
-                # Formato de encabezados
+                # Aplica formato visual a los encabezados de la hoja
                 worksheet.format('A1:G1', {
                     'backgroundColor': {'red': 0.2, 'green': 0.6, 'blue': 0.8},
                     'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}}
@@ -71,7 +71,7 @@ class GoogleSheetsHandler:
             raise
 
     def _create_dashboard_sheet(self, sheet_id):
-        """Crea la hoja de dashboard si no existe"""
+        """Crea la hoja DashboardIKUBOT si no existe."""
         try:
             spreadsheet = self.client.open_by_key(sheet_id)
             try:
@@ -85,7 +85,7 @@ class GoogleSheetsHandler:
                     cols=20
                 )
                 
-                # Título del dashboard
+                # Establece el título principal del dashboard
                 worksheet.update('A1', [['Dashboard de Analíticas IkuBot']])
                 worksheet.format('A1', {
                     'backgroundColor': {'red': 0.1, 'green': 0.4, 'blue': 0.7},
@@ -100,7 +100,7 @@ class GoogleSheetsHandler:
             raise
 
     def _create_users_sheet(self, sheet_id, sheet_name="UsuariosIKUBOT"):
-        """Crea la hoja de usuarios si no existe y devuelve el worksheet"""
+        """Crea la hoja UsuariosIKUBOT si no existe y retorna el worksheet."""
         try:
             spreadsheet = self.client.open_by_key(sheet_id)
             try:
@@ -113,10 +113,12 @@ class GoogleSheetsHandler:
                     rows=1000,
                     cols=10
                 )
+                # Agrega los encabezados principales a la hoja de usuarios
                 headers = [
                     "Timestamp", "Session_ID", "Nombre", "Tipo_Usuario", "Contacto"
                 ]
                 worksheet.append_row(headers)
+                # Aplica formato visual a los encabezados de la hoja de usuarios
                 worksheet.format('A1:E1', {
                     'backgroundColor': {'red': 0.2, 'green': 0.6, 'blue': 0.8},
                     'textFormat': {'bold': True, 'foregroundColor': {'red': 1, 'green': 1, 'blue': 1}}
@@ -128,24 +130,24 @@ class GoogleSheetsHandler:
             raise
 
     def update_dashboard_tables(self, sheet_id):
-        """Actualiza las tablas de información en la hoja DashboardIKUBOT"""
+        """Actualiza todas las tablas de información en la hoja DashboardIKUBOT."""
         try:
             self._refresh_credentials()
             
-            # Obtener datos de analytics
+            # Obtiene los datos de la hoja AnalyticasIKUBOT
             analytics_sheet = self._create_analytics_sheet(sheet_id)
             dashboard_sheet = self._create_dashboard_sheet(sheet_id)
             
-            # Obtener datos
+            # Obtiene los datos de la hoja de analytics
             analytics_data = analytics_sheet.get_all_values()
             if len(analytics_data) <= 1:
                 print("⚠️ No hay suficientes datos para actualizar tablas")
                 return False
             
-            # Limpiar dashboard antes de crear nuevas tablas
+            # Limpia el dashboard antes de crear nuevas tablas
             dashboard_sheet.clear()
             
-            # Título del dashboard
+            # Actualiza el título del dashboard con la fecha y hora actual
             dashboard_sheet.update('A1', [[
                 'Dashboard de Analíticas IkuBot - Actualizado: ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             ]])
@@ -156,7 +158,7 @@ class GoogleSheetsHandler:
             })
             dashboard_sheet.merge_cells('A1:T1')
             
-            # Crear tablas de datos
+            # Crea todas las tablas de datos en el dashboard
             self._create_daily_interactions_table(analytics_data, dashboard_sheet)
             self._create_interaction_types_table(analytics_data, dashboard_sheet)
             self._create_hourly_distribution_table(analytics_data, dashboard_sheet)
@@ -172,16 +174,16 @@ class GoogleSheetsHandler:
             return False
 
     def _create_daily_interactions_table(self, data, sheet):
-        """Crea tabla de interacciones por día"""
+        """Genera la tabla de interacciones por día en el dashboard."""
         try:
-            # Procesar datos
+            # Procesa los datos para contar interacciones por fecha
             daily_counts = {}
             for row in data[1:]:  # Saltar encabezados
                 if len(row) >= 2:
                     date = row[1]  # Columna Fecha
                     daily_counts[date] = daily_counts.get(date, 0) + 1
             
-            # Escribir tabla
+            # Escribe la tabla de interacciones por día en el dashboard
             sheet.update('A3', [['Interacciones por Día']])
             sheet.format('A3', {'textFormat': {'bold': True, 'fontSize': 12}})
             
@@ -191,7 +193,7 @@ class GoogleSheetsHandler:
                 'textFormat': {'bold': True}
             })
             
-            # Datos
+            # Inserta los datos ordenados por fecha
             sorted_dates = sorted(daily_counts.items())
             if sorted_dates:
                 values = [[date, count] for date, count in sorted_dates]
@@ -201,9 +203,9 @@ class GoogleSheetsHandler:
             print(f"Error en tabla diaria: {e}")
 
     def _create_interaction_types_table(self, data, sheet):
-        """Crea tabla de tipos de interacción"""
+        """Genera la tabla de tipos de interacción en el dashboard."""
         try:
-            # Procesar datos
+            # Procesa los datos para contar los tipos de interacción
             type_counts = {}
             for row in data[1:]:  # Saltar encabezados
                 if len(row) >= 4:
@@ -211,7 +213,7 @@ class GoogleSheetsHandler:
                     if interaction_type:
                         type_counts[interaction_type] = type_counts.get(interaction_type, 0) + 1
             
-            # Escribir tabla
+            # Escribe la tabla de tipos de interacción en el dashboard
             sheet.update('D3', [['Tipos de Interacción']])
             sheet.format('D3', {'textFormat': {'bold': True, 'fontSize': 12}})
             
@@ -221,7 +223,7 @@ class GoogleSheetsHandler:
                 'textFormat': {'bold': True}
             })
             
-            # Datos
+            # Inserta los datos de tipos de interacción
             if type_counts:
                 values = [[tipo, count] for tipo, count in type_counts.items()]
                 sheet.update('D5', values)
@@ -230,9 +232,9 @@ class GoogleSheetsHandler:
             print(f"Error en tabla de tipos: {e}")
 
     def _create_hourly_distribution_table(self, data, sheet):
-        """Crea tabla de distribución por horas"""
+        """Genera la tabla de distribución de interacciones por horas en el dashboard."""
         try:
-            # Procesar datos
+            # Procesa los datos para agrupar interacciones por hora
             hourly_counts = {}
             for row in data[1:]:  # Saltar encabezados
                 if len(row) >= 3:
@@ -241,7 +243,7 @@ class GoogleSheetsHandler:
                         hour = time_str.split(':')[0]
                         hourly_counts[hour] = hourly_counts.get(hour, 0) + 1
             
-            # Escribir tabla
+            # Escribe la tabla de distribución por horas en el dashboard
             sheet.update('G3', [['Distribución por Horas']])
             sheet.format('G3', {'textFormat': {'bold': True, 'fontSize': 12}})
             
@@ -251,7 +253,7 @@ class GoogleSheetsHandler:
                 'textFormat': {'bold': True}
             })
             
-            # Datos ordenados por hora
+            # Inserta los datos ordenados por hora
             sorted_hours = sorted(hourly_counts.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)
             if sorted_hours:
                 values = [[f"{hour}:00", count] for hour, count in sorted_hours]
@@ -261,9 +263,9 @@ class GoogleSheetsHandler:
             print(f"Error en tabla horaria: {e}")
 
     def _create_incidents_vs_normal_table(self, data, sheet):
-        """Crea tabla de incidencias vs consultas normales (basado en Tipo_Interaccion)"""
+        """Genera la tabla comparativa entre incidencias y consultas normales en el dashboard."""
         try:
-            # Procesar datos utilizando Tipo_Interaccion
+            # Procesa los datos para diferenciar incidencias y consultas normales
             incident_counts = {'Incidencia': 0, 'Consulta Normal': 0}
             for row in data[1:]:  # Saltar encabezados
                 if len(row) >= 4:
@@ -273,7 +275,7 @@ class GoogleSheetsHandler:
                     else:
                         incident_counts['Consulta Normal'] += 1
             
-            # Escribir tabla
+            # Escribe la tabla comparativa en el dashboard
             sheet.update('J3', [['Incidencias vs Consultas']])
             sheet.format('J3', {'textFormat': {'bold': True, 'fontSize': 12}})
             
@@ -283,7 +285,7 @@ class GoogleSheetsHandler:
                 'textFormat': {'bold': True}
             })
             
-            # Datos
+            # Inserta los datos comparativos
             values = [['Incidencias', incident_counts['Incidencia']], 
                      ['Consultas Normales', incident_counts['Consulta Normal']]]
             sheet.update('J5', values)
@@ -292,12 +294,12 @@ class GoogleSheetsHandler:
             print(f"Error en tabla de incidencias: {e}")
 
     def _create_summary_metrics(self, data, sheet):
-        """Crea métricas de resumen"""
+        """Genera las métricas de resumen en el dashboard."""
         try:
             total_interactions = len(data) - 1  # Excluir encabezados
             unique_sessions = len(set(row[6] for row in data[1:] if len(row) >= 7 and row[6]))
             
-            # Calcular longitud promedio de mensajes desde la columna Mensaje_Usuario (índice 4)
+            # Calcula la longitud promedio de los mensajes de usuario
             total_length = 0
             count_with_length = 0
             for row in data[1:]:
@@ -306,7 +308,7 @@ class GoogleSheetsHandler:
                     count_with_length += 1
             avg_length = total_length / count_with_length if count_with_length > 0 else 0
             
-            # Escribir métricas
+            # Escribe las métricas de resumen en el dashboard
             sheet.update('M3', [['Métricas de Resumen']])
             sheet.format('M3', {'textFormat': {'bold': True, 'fontSize': 12}})
             
@@ -328,12 +330,12 @@ class GoogleSheetsHandler:
             print(f"Error en métricas de resumen: {e}")
 
     def log_interaction(self, sheet_id, interaction_data):
-        """Registra una interacción en AnalyticasIKUBOT (formato nuevo sin columnas extra)"""
+        """Registra una nueva interacción en la hoja AnalyticasIKUBOT."""
         try:
             self._refresh_credentials()
             worksheet = self._create_analytics_sheet(sheet_id)
             
-            # Preparar datos
+            # Prepara los datos para registrar la interacción
             row_data = [
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 datetime.now().strftime("%Y-%m-%d"),
@@ -352,7 +354,7 @@ class GoogleSheetsHandler:
             return False
 
     def add_incident(self, sheet_id, sheet_name, incident_data):
-        """Agrega una incidencia a la hoja"""
+        """Agrega una nueva incidencia a la hoja correspondiente."""
         max_retries = 3
         retry_count = 0
         
@@ -387,7 +389,7 @@ class GoogleSheetsHandler:
         return False
 
     def add_user_profile(self, sheet_id, sheet_name, user_profile):
-        """Agrega o actualiza un registro de usuario en la hoja UsuariosIKUBOT"""
+        """Agrega o actualiza el registro de usuario en la hoja UsuariosIKUBOT."""
         max_retries = 3
         retry_count = 0
 
@@ -421,7 +423,7 @@ class GoogleSheetsHandler:
         return False
 
     def test_connection(self, sheet_id, sheet_name):
-        """Prueba la conexión con Google Sheets"""
+        """Verifica la conexión con Google Sheets y retorna el estado."""
         try:
             self._refresh_credentials()
             sheet = self.client.open_by_key(sheet_id).worksheet(sheet_name)
@@ -431,7 +433,7 @@ class GoogleSheetsHandler:
             return f"❌ Error de conexión: {str(e)}"
 
     def get_incident_stats(self, sheet_id, sheet_name):
-        """Obtiene estadísticas de incidencias"""
+        """Obtiene estadísticas detalladas de las incidencias registradas."""
         try:
             self._refresh_credentials()
             sheet = self.client.open_by_key(sheet_id).worksheet(sheet_name)

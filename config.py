@@ -2,7 +2,7 @@ import streamlit as st
 
 def get_secrets():
     try:
-        # Para Streamlit Cloud
+    # Obtiene las credenciales desde Streamlit Cloud si están disponibles
         return {
             'DEEPSEEK_API_KEY': st.secrets["DEEPSEEK"]["API_KEY"],
             'DEEPSEEK_API_URL': st.secrets["DEEPSEEK"]["API_URL"],

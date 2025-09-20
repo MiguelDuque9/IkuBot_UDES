@@ -7,15 +7,16 @@ import hashlib
 from utils.api_handler import DeepSeekAPIHandler
 from config import GOOGLE_SHEET_ID
 import os
+import unicodedata
 
-# Configuración de la página
+## Configuración de la página principal de la aplicación
 st.set_page_config(
     page_title="IkúBOT - Universidad UDES",
-    page_icon="assets/escudo.png",  # Escudo agregado
+    page_icon="assets/escudo.png",
     layout="centered"
 )
 
-# Inicializar handlers
+## Inicializa los manejadores de API y hojas de cálculo
 @st.cache_resource
 def init_handlers(version: str = "v1"):
     return {
@@ -23,13 +24,13 @@ def init_handlers(version: str = "v1"):
         "deepseek": DeepSeekAPIHandler()
     }
 
-# Cambia HANDLERS_VERSION para forzar refresco del caché cuando cambie la lógica de handlers
+## Versión de los handlers para control de caché
 HANDLERS_VERSION = "users-v1"
 handlers = init_handlers(HANDLERS_VERSION)
 SHEET_NAME = "IncidenciasIKUBOT"
 USERS_SHEET_NAME = "UsuariosIKUBOT"
 
-# Mensaje de autorización de tratamiento de datos personales (consentimiento)
+## Mensaje formal de consentimiento para tratamiento de datos personales
 CONSENT_MESSAGE = (
     "¡Hola! Soy IkúBot, tu asistente virtual de la UDES. Estoy aquí para ayudarte con tus consultas académicas y administrativas.\n\n"
     "Para dar cumplimiento de lo establecido en la Ley 1581 de 2012 y su Decreto Reglamentario 1377 de 2013, sobre la Protección de Datos Personales, "
@@ -42,19 +43,24 @@ CONSENT_MESSAGE = (
     "(Por favor responda únicamente con: Si o No)."
 )
 
-# Función para limpiar respuestas
+## Elimina etiquetas de procesamiento y espacios innecesarios en la respuesta
 def clean_response(response):
     """Limpia etiquetas de thinking y espacios extra"""
     cleaned = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)
     cleaned = re.sub(r'<thinking>.*?</thinking>', '', cleaned, flags=re.DOTALL)
     return cleaned.strip()
 
-# Función para verificar si es una consulta válida de UDES
+## Verifica si la consulta está relacionada con la Universidad UDES
 def is_valid_udes_query(user_input):
     """Verifica si la consulta está relacionada con la universidad"""
     return any(keyword in user_input.lower() for keyword in UDES_KEYWORDS)
 
-# Función para generar respuestas con la API
+def _lower_no_accents(text: str) -> str:
+    """Convierte a minúsculas y elimina acentos para comparaciones robustas."""
+    nfkd = unicodedata.normalize('NFD', text)
+    return ''.join(ch for ch in nfkd if unicodedata.category(ch) != 'Mn').lower()
+
+## Genera la respuesta del asistente virtual usando la API
 def get_ai_response(user_input):
     try:
         response = handlers["deepseek"].generate_response(BASE_PROMPT, user_input)
@@ -73,20 +79,37 @@ def get_ai_response(user_input):
         st.error(f"Error al conectar con el modelo: {e}")
         return "Disculpa, estoy teniendo problemas técnicos. Por favor intenta más tarde o genera una incidencia."
 
-# Función para validar email
+## Valida el formato de correo electrónico
 def validate_email(email):
     """Valida formato de email"""
     email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(email_pattern, email) is not None
 
-# Función para manejar incidencias
+## Gestiona el flujo de creación y registro de incidencias
 def handle_incident_flow(user_input):
     """Maneja el flujo de creación de incidencias"""
     
+    # Cancelar protocolo en cualquier fase si el usuario lo indica
+    user_l = user_input.strip().lower()
+    if user_l in ["no", "cancelar", "cancel", "salir"] and st.session_state.conversation_flow in {"COLLECTING", "CONFIRMING"}:
+        st.session_state.conversation_flow = "NORMAL"
+        st.session_state.incident_data = {}
+        return "Se ha cancelado la generación de incidencia. Hay algo mas en lo que te pueda asistir?."
+
     if st.session_state.conversation_flow == "NORMAL":
-        if any(trigger in user_input.lower() for trigger in INCIDENT_KEYWORDS):
+        # Detección robusta de intención de incidencia (acentos y variantes)
+        text_cmp = _lower_no_accents(user_input)
+        base_hit = any(trigger in text_cmp for trigger in [_lower_no_accents(k) for k in INCIDENT_KEYWORDS])
+        extra_triggers = (
+            "abrir un ticket", "abrir ticket", "reporte un problema", "reportar problema", "tengo un problema",
+            "soporte", "ayuda con un error", "fallo", "error en", "no funciona", "no me deja", "presento un inconveniente",
+            "crear caso", "crear un caso", "levantar caso", "generar caso", "generar reporte", "reportar incidencia",
+            "incidente", "inconveniente"
+        )
+        extra_hit = any(_lower_no_accents(p) in text_cmp for p in extra_triggers)
+        if base_hit or extra_hit:
             st.session_state.conversation_flow = "COLLECTING"
-            # Si ya tenemos datos de usuario, saltar a descripción
+            # Si el usuario ya tiene datos registrados, omitir recolección
             if st.session_state.user_profile.get("completed"):
                 contacto = st.session_state.user_profile.get("telefono", "")
                 nombre_completo = st.session_state.user_profile.get("nombre", "")
@@ -100,7 +123,7 @@ def handle_incident_flow(user_input):
                 }
                 return (
                     f"🎫 **Creación de Incidencia**\n\n"
-                    f"{primer_nombre}, ya tengo tus datos de contacto. Por favor describe detalladamente tu **problema o consulta**:"
+                    f"{primer_nombre}, ya tengo tus datos de contacto. Por favor describe detalladamente tu **problema o consulta**, si ya no deseas generar la incidencia escribe 'cancelar':"
                 )
             else:
                 st.session_state.incident_data = {
@@ -182,7 +205,7 @@ def confirm_incident_data(user_input):
             )
             
             if result:
-                # No registrar en Analyticas la confirmación de incidencia
+                # Evita registrar la confirmación de incidencia en Analyticas
                 
                 st.session_state.conversation_flow = "NORMAL"
                 st.session_state.incident_data = {}
@@ -210,12 +233,19 @@ Por favor intenta nuevamente en unos minutos. Si el problema persiste, contacta 
             "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "step": "nombre"
         }
-        return "Entendido. Vamos a comenzar de nuevo.\n\nPor favor, ingresa tu **nombre completo**:"
+        return (
+            "Entendido. Si deseas cancelar por completo, escribe 'cancelar'.\n\n"
+            "De lo contrario, vamos a comenzar de nuevo. Por favor, ingresa tu **nombre completo**:"
+        )
+    elif user_response in ['cancelar', 'cancel', 'salir']:
+        st.session_state.conversation_flow = "NORMAL"
+        st.session_state.incident_data = {}
+        return "Se ha cancelado la generación de incidencia. ¿Deseas hacer otra consulta?"
     
     else:
         return "Por favor responde **'Sí'** para confirmar o **'No'** para corregir los datos."
 
-# Estado de la sesión
+## Inicializa el estado de la sesión para el chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
     st.session_state.session_id = hashlib.md5(str(datetime.now()).encode()).hexdigest()[:8]
@@ -226,49 +256,55 @@ if "incident_data" not in st.session_state:
 if "conversation_flow" not in st.session_state:
     st.session_state.conversation_flow = "NORMAL"
 
-# Estado de consentimiento (PENDING, ACCEPTED, DECLINED)
+## Estado del consentimiento del usuario (PENDING, ACCEPTED, DECLINED)
 if "consent_status" not in st.session_state:
     st.session_state.consent_status = "PENDING"
 
-# Perfil de usuario básico tras consentimiento
+## Perfil básico del usuario tras aceptar el consentimiento
 if "user_profile" not in st.session_state:
     st.session_state.user_profile = {
         "completed": False,
-        "step": None,  # nombre -> tipo_usuario -> telefono
+    "step": None,  # Secuencia: nombre -> tipo_usuario -> telefono
         "nombre": "",
         "tipo_usuario": "",
         "telefono": ""
     }
 
-# Mensaje inicial con autorización de datos
+## Mensaje inicial que solicita autorización de tratamiento de datos
 if not st.session_state.messages:
     st.session_state.messages.append({
         "role": "assistant",
         "content": CONSENT_MESSAGE
     })
 
-# Interfaz principal
+## Construcción de la interfaz principal de usuario
 col1, col2 = st.columns([1, 8])
 with col1:
-    st.image("assets/escudo.png", width=80)  # Mostrar escudo arriba
+    st.image("assets/escudo.png", width=80)  # Muestra el escudo institucional
 with col2:
     st.title("IkúBot")
 st.caption("Asistente virtual - Oficina de atención al estudiante - UDES")
 
-# Indicador de estado
+## Muestra el estado actual del flujo de conversación
 if st.session_state.conversation_flow != "NORMAL":
     st.info(f"📝 Creando incidencia - Paso: {st.session_state.incident_data.get('step', 'confirmación')}")
 
-# Mostrar historial de chat
+## Presenta el historial de mensajes en el chat
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Input del usuario
+## Entrada de mensajes por parte del usuario
 if prompt := st.chat_input("Escribe tu mensaje..."):
     if prompt.strip():
-        # Manejo de consentimiento antes de cualquier otra acción
+        # Controla el consentimiento antes de procesar cualquier acción
         user_clean = prompt.strip().lower()
+        # Normaliza el texto (corrige ortografía) sin alterar intención, para mejorar detección
+        try:
+            normalized = handlers["deepseek"].normalize_text(prompt) or prompt
+        except Exception:
+            normalized = prompt
+        normalized_l = normalized.lower()
 
         if st.session_state.consent_status != "ACCEPTED":
             st.session_state.messages.append({"role": "user", "content": prompt})
@@ -278,7 +314,7 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
             with st.chat_message("assistant"):
                 if user_clean in ["si", "sí", "si.", "sí.", "yes"]:
                     st.session_state.consent_status = "ACCEPTED"
-                    # Iniciar flujo de perfil
+                    # Inicia el flujo de recolección de perfil de usuario
                     st.session_state.user_profile.update({
                         "completed": False,
                         "step": "nombre",
@@ -309,9 +345,9 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
                     st.markdown(ask_again)
                     st.session_state.messages.append({"role": "assistant", "content": ask_again})
         else:
-            # Preparar criterio de logging (se registrará luego de generar la respuesta)
-            prompt_l = prompt.lower()
-            is_incident_trigger = any(trigger in prompt_l for trigger in INCIDENT_KEYWORDS)
+            # Prepara los datos para registro en Analyticas tras generar la respuesta
+            prompt_l = normalized_l
+            is_incident_trigger = any(trigger in _lower_no_accents(prompt_l) for trigger in [_lower_no_accents(k) for k in INCIDENT_KEYWORDS])
             starts_words = ("necesito", "quiero", "busco", "como", "cómo", "cuando", "cuándo", "donde", "dónde", "que", "qué", "información", "info", "ayuda")
             has_udes_keyword = any(k in prompt_l for k in UDES_KEYWORDS)
             is_query_like = ("?" in prompt) or has_udes_keyword or prompt_l.startswith(starts_words)
@@ -327,7 +363,7 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
                 st.markdown(prompt)
             
             with st.chat_message("assistant"):
-                # Si el perfil no se ha completado, recolectarlo antes de continuar
+                # Si el perfil no está completo, solicita los datos antes de continuar
                 if st.session_state.consent_status == "ACCEPTED" and not st.session_state.user_profile.get("completed"):
                     step = st.session_state.user_profile.get("step")
                     reply = None
@@ -337,7 +373,7 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
                             reply = "Por favor ingresa un nombre válido (mínimo 3 caracteres):"
                         else:
                             st.session_state.user_profile["nombre"] = prompt.strip()
-                            # Guardar primer nombre para personalización
+                            # Extrae y guarda el primer nombre para personalización
                             parts = re.split(r"\s+", st.session_state.user_profile["nombre"].strip())
                             st.session_state.user_profile["primer_nombre"] = parts[0] if parts else st.session_state.user_profile["nombre"]
                             st.session_state.user_profile["step"] = "tipo_usuario"
@@ -369,10 +405,10 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
                         else:
                             st.session_state.user_profile["completed"] = True
                             st.session_state.user_profile["step"] = None
-                            # Guardar en Google Sheets (asegurar método disponible)
+                            # Registra el perfil en Google Sheets si el método está disponible
                             gs = handlers.get("gsheets")
                             if not hasattr(gs, "add_user_profile"):
-                                # Re-inicializar handlers por si hay caché antiguo
+                                # Re-inicializa los handlers si hay caché desactualizado
                                 st.cache_resource.clear()
                                 handlers.update(init_handlers(HANDLERS_VERSION))
                                 gs = handlers.get("gsheets")
@@ -403,8 +439,9 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
                     st.markdown(reply)
                     st.session_state.messages.append({"role": "assistant", "content": reply})
                 else:
-                    # Personalizar respuestas usando el nombre si está disponible
-                    incident_response = handle_incident_flow(prompt)
+                    # Personaliza las respuestas usando el nombre del usuario si está disponible
+                    # Permite cancelación global con texto normalizado
+                    incident_response = handle_incident_flow(normalized)
                     
                     if incident_response is not None:
                         personalized = incident_response
@@ -418,7 +455,7 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
                         })
                     else:
                         with st.spinner("Pensando..."):
-                            response = get_ai_response(prompt)
+                            response = get_ai_response(normalized)
                             if st.session_state.user_profile.get("completed") and st.session_state.user_profile.get("nombre"):
                                 nombre_corto = st.session_state.user_profile.get("primer_nombre", st.session_state.user_profile["nombre"])
                                 response = f"{nombre_corto}, " + response
@@ -427,7 +464,7 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
                                 "role": "assistant", 
                                 "content": response
                             })
-                            # Registrar pregunta y respuesta en Analyticas solo para consultas válidas
+                            # Registra la interacción en Analyticas solo si la consulta es válida
                             if should_log_query:
                                 handlers["gsheets"].log_interaction(
                                     GOOGLE_SHEET_ID,
@@ -439,7 +476,7 @@ if prompt := st.chat_input("Escribe tu mensaje..."):
                                     }
                                 )
 
-# Sidebar
+## Barra lateral con información institucional y opciones
 with st.sidebar:
     st.image("assets/udeslarge.png", width=350)
     st.header("ℹ️ Información")
@@ -453,7 +490,7 @@ with st.sidebar:
     st.markdown("📧 sec.atencionestudiante@udes.edu.co")
     st.markdown("📞 (607) 651 6500")
     
-    # Botón para actualizar tablas
+    # Botón para actualizar las tablas en Google Sheets
     if st.button("🔄 Actualizar tablas en Google Sheets"):
         if handlers["gsheets"].update_dashboard_tables(GOOGLE_SHEET_ID):
             st.success("Tablas actualizadas exitosamente")
