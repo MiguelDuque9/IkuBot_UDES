@@ -1,6 +1,6 @@
 import streamlit as st
 from google_sheets import GoogleSheetsHandler
-from prompts import BASE_PROMPT, UDES_KEYWORDS, INCIDENT_KEYWORDS
+from knowledge import UDES_KEYWORDS, INCIDENT_KEYWORDS, get_system_prompt
 from datetime import datetime
 import re
 import hashlib
@@ -71,7 +71,9 @@ def _lower_no_accents(text: str) -> str:
 ## Genera la respuesta del asistente virtual usando la API
 def get_ai_response(user_input):
     try:
-        response = handlers["deepseek"].generate_response(BASE_PROMPT, user_input)
+        # Obtiene dinámicamente el prompt de sistema (base de conocimiento desde Google Doc)
+        system_prompt = get_system_prompt()
+        response = handlers["deepseek"].generate_response(system_prompt, user_input)
         
         if not response:
             return "Disculpa, estoy teniendo problemas técnicos. Por favor intenta más tarde."
