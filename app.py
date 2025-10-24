@@ -68,6 +68,26 @@ def _lower_no_accents(text: str) -> str:
     nfkd = unicodedata.normalize('NFD', text)
     return ''.join(ch for ch in nfkd if unicodedata.category(ch) != 'Mn').lower()
 
+def _normalize_for_match(text: str) -> str:
+    """Normaliza texto para comparación: minúsculas, sin acentos y espacios únicos."""
+    t = _lower_no_accents(text or "")
+    t = t.strip()
+    t = re.sub(r"\s+", " ", t)
+    return t
+
+def _is_affirmative(text: str) -> bool:
+    """Detecta confirmaciones tipo 'sí' tolerantes a acentos, mayúsculas y signos.
+    Acepta variantes comunes: si/sí, yes, ok, vale, correcto, confirmo, claro.
+    """
+    t = _normalize_for_match(text)
+    # Coincide si inicia con alguna palabra afirmativa, permitiendo puntuación luego
+    return re.match(r"^(si|yes|ok|vale|correcto|confirmo|claro)(\b|[^a-z0-9])", t) is not None
+
+def _is_negative(text: str) -> bool:
+    """Detecta negaciones/cancelaciones tolerantes a acentos y signos."""
+    t = _normalize_for_match(text)
+    return re.match(r"^(no|nop|nope|incorrecto|corregir|cancelar|cancel|salir)(\b|[^a-z0-9])", t) is not None
+
 ## Genera la respuesta del asistente virtual usando la API
 def get_ai_response(user_input):
     try:
@@ -101,7 +121,7 @@ def handle_incident_flow(user_input):
     
     # Cancelar protocolo en cualquier fase si el usuario lo indica
     user_l = user_input.strip().lower()
-    if user_l in ["no", "cancelar", "cancel", "salir"] and st.session_state.conversation_flow in {"COLLECTING", "CONFIRMING"}:
+    if _is_negative(user_l) and st.session_state.conversation_flow in {"COLLECTING", "CONFIRMING"}:
         st.session_state.conversation_flow = "NORMAL"
         st.session_state.incident_data = {}
         return "Se ha cancelado la generación de incidencia. Hay algo mas en lo que te pueda asistir?."
@@ -198,9 +218,9 @@ Responde **'Sí'** para registrar la incidencia o **'No'** para corregir los dat
 
 def confirm_incident_data(user_input):
     """Confirma y registra la incidencia"""
-    user_response = user_input.lower().strip()
+    user_response = user_input.strip()
     
-    if user_response in ['sí', 'si', 'yes', 'confirmo', 'correcto', 'ok']:
+    if _is_affirmative(user_response):
         try:
             result = handlers["gsheets"].add_incident(
                 GOOGLE_SHEET_ID, 
@@ -231,7 +251,7 @@ Por favor intenta nuevamente en unos minutos. Si el problema persiste, contacta 
             st.error(f"Error técnico: {str(e)}")
             return f"⚠️ **Error técnico:** {str(e)}\n\nPor favor intenta más tarde."
     
-    elif user_response in ['no', 'nope', 'incorrecto', 'corregir']:
+    elif _is_negative(user_response):
         st.session_state.conversation_flow = "COLLECTING"
         st.session_state.incident_data = {
             "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -241,7 +261,7 @@ Por favor intenta nuevamente en unos minutos. Si el problema persiste, contacta 
             "Entendido. Si deseas cancelar por completo, escribe 'cancelar'.\n\n"
             "De lo contrario, vamos a comenzar de nuevo. Por favor, ingresa tu **nombre completo**:"
         )
-    elif user_response in ['cancelar', 'cancel', 'salir']:
+    elif re.match(r"^(cancelar|cancel|salir)(\b|[^a-z0-9])", _normalize_for_match(user_response)):
         st.session_state.conversation_flow = "NORMAL"
         st.session_state.incident_data = {}
         return "Se ha cancelado la generación de incidencia. ¿Deseas hacer otra consulta?"
