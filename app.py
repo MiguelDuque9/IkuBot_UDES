@@ -9,14 +9,12 @@ from config import GOOGLE_SHEET_ID
 import os
 import unicodedata
 
-## Configuración de la página principal de la aplicación
 st.set_page_config(
     page_title="IkúBOT - Universidad UDES",
     page_icon="assets/escudo.png",
     layout="centered"
 )
 
-## Inicializa los manejadores de API y hojas de cálculo
 @st.cache_resource
 def init_handlers(version: str = "v1"):
     return {
@@ -518,9 +516,9 @@ with st.sidebar:
     st.markdown("📧 sec.atencionestudiante@udes.edu.co")
     st.markdown("📞 (607) 651 6500")
     
-    # Botón para actualizar las tablas en Google Sheets
+    # Botón para actualizar únicamente la hoja de métricas (dashboard no se usa)
     if st.button("🔄 Actualizar tablas en Google Sheets"):
-        if handlers["gsheets"].update_dashboard_tables(GOOGLE_SHEET_ID):
-            st.success("Tablas actualizadas exitosamente")
+        if handlers["gsheets"].update_metrics(GOOGLE_SHEET_ID):
+            st.success("Métricas actualizadas correctamente")
         else:
-            st.error("Error al actualizar tablas")
+            st.error("Error al actualizar métricas")
